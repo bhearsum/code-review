@@ -36,6 +36,7 @@ from code_review_bot.sources.phabricator import (
     PhabricatorBuildState,
 )
 from code_review_bot.tasks.base import AnalysisTask, BaseTask, NoticeTask
+from code_review_bot.tasks.build import BuildTask
 from code_review_bot.tasks.clang_format import ClangFormatTask
 from code_review_bot.tasks.clang_tidy import ClangTidyTask
 from code_review_bot.tasks.clang_tidy_external import ExternalTidyTask
@@ -111,6 +112,8 @@ class Workflow:
         """
         if analysis_mode == AnalysisMode.Lint:
             return self._run_lint(revision)
+        elif analysis_mode == AnalysisMode.BuildTest:
+            return self._run_build_test(revision)
 
     def _run_lint(self, revision):
         # Index ASAP Taskcluster task for this revision
@@ -175,6 +178,41 @@ class Workflow:
         # Publish all issues
         self.publish(
             revision, issues, task_failures, notices, reviewers, AnalysisMode.Lint
+        )
+
+        return issues
+
+    def _run_build_test(self, revision):
+        """
+        Find build and test failures and publish them
+        """
+        # Index ASAP Taskcluster task for this revision
+        self.index(revision, namespace_suffix="build-test", state="started")
+
+        # Set the Phabricator build as running
+        self.update_status(revision, state=BuildState.Work)
+        if settings.taskcluster_url and isinstance(revision, PhabricatorRevision):
+            self.publish_link(
+                revision,
+                slug="publication",
+                name="Publication task",
+                url=settings.taskcluster_url,
+            )
+
+        issues, task_failures, notices, reviewers = self.find_build_test_issues(
+            revision, settings.try_group_id
+        )
+
+        # Publish all issues
+        self.publish(
+            revision,
+            issues,
+            task_failures,
+            notices,
+            reviewers,
+            AnalysisMode.BuildTest,
+            "build-test",
+            publish_to_backend=False,
         )
 
         return issues
@@ -289,7 +327,11 @@ class Workflow:
         logger.info("Starting revision analysis", revision=revision)
 
         # Index ASAP Taskcluster task for this revision
-        self.index(revision, state="analysis")
+        namespace_suffix = ""
+        if analysis_mode == AnalysisMode.BuildTest:
+            namespace_suffix = "build-test"
+
+        self.index(revision, state="analysis", namespace_suffix=namespace_suffix)
 
         # Do not process revisions from black-listed users
         if revision.is_blacklisted:
@@ -402,7 +444,7 @@ class Workflow:
         self.cancel_previous(revision)
 
         # Update index when the patch has been pushed to try
-        self.index(revision, state="pushed_to_try")
+        self.index(revision, state="pushed_to_try", namespace_suffix=namespace_suffix)
 
         # Update final state using worker output
         if self.update_build and isinstance(revision, PhabricatorRevision):
@@ -478,7 +520,8 @@ class Workflow:
         notices,
         reviewers,
         analysis_mode: AnalysisMode,
-        index_prefix="",
+        namespace_suffix="",
+        publish_to_backend=True,
     ):
         """
         Publish issues on selected reporters
@@ -494,7 +537,8 @@ class Workflow:
         # Publish issues on backend to retrieve their comparison state
         publishable_issues = [i for i in issues if i.is_publishable()]
 
-        self.backend_api.publish_issues(publishable_issues, revision)
+        if publish_to_backend:
+            self.backend_api.publish_issues(publishable_issues, revision)
 
         # Report issues publication stats
         nb_issues = len(issues)
@@ -508,6 +552,7 @@ class Workflow:
             state="analyzed",
             issues=nb_issues,
             issues_publishable=nb_publishable,
+            namespace_suffix=namespace_suffix,
         )
         stats.add_metric("analysis.issues.publishable", nb_publishable)
 
@@ -519,7 +564,11 @@ class Workflow:
                 )
 
         self.index(
-            revision, state="done", issues=nb_issues, issues_publishable=nb_publishable
+            revision,
+            state="done",
+            issues=nb_issues,
+            issues_publishable=nb_publishable,
+            namespace_suffix=namespace_suffix,
         )
 
         # Publish final HarborMaster state
@@ -1003,6 +1052,46 @@ class Workflow:
         )
         return issues, task_failures, notices, reviewers
 
+    def find_build_test_issues(self, revision, group_id):
+        tasks = self.queue_service.listTaskGroup(group_id)
+        assert "tasks" in tasks
+        tasks = {task["status"]["taskId"]: task for task in tasks["tasks"]}
+        assert len(tasks) > 0
+        logger.info("Loaded Taskcluster group", id=group_id, tasks=len(tasks))
+
+        issues = []
+        # we don't use task_failures here; they provide a generic, not very useful
+        # error message
+        task_failures = []
+        notices = []
+        reviewers = []
+
+        for taskId, status in tasks.items():
+            try:
+                task = self.build_task(status)
+                if task is None:
+                    continue
+
+                artifacts = task.load_artifacts(self.queue_service)
+                if isinstance(task, AnalysisTask):
+                    task_issues = task.parse_issues(artifacts, revision)
+                    logger.info(
+                        f"Found {len(task_issues)} issues",
+                        task=task.name,
+                        id=task.id,
+                    )
+                    issues += task_issues
+
+            except Exception as e:
+                logger.warn(
+                    "Failure during build test analysis",
+                    task=settings.try_group_id,
+                    error=e,
+                )
+                raise
+
+        return issues, task_failures, notices, reviewers
+
     def build_task(self, task_status):
         """
         Create a specific implementation of AnalysisTask according to the task name
@@ -1029,6 +1118,8 @@ class Workflow:
             return ExternalTidyTask(task_id, task_status)
         elif name == "source-test-taskgraph-diff":
             return TaskGraphDiffTask(task_id, task_status)
+        elif name.startswith("build-") and not name.startswith("build-docker-image-"):
+            return BuildTask(task_id, task_status)
         elif DefaultTask.matches(task_id):
             return DefaultTask(task_id, task_status)
 

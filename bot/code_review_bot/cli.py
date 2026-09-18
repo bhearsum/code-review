@@ -230,6 +230,8 @@ def main():
 
             if parameters["target_tasks_method"] == "codereview":
                 analysis_mode = AnalysisMode.Lint
+            elif parameters["target_tasks_method"] == "try_tasks":
+                analysis_mode = AnalysisMode.BuildTest
 
             if not analysis_mode:
                 raise Exception("Cannot detect analysis mode; cannot proceed!")
@@ -273,7 +275,12 @@ def main():
         if isinstance(e, AnalysisException):
             extras["error_code"] = e.code
             extras["error_message"] = str(e)
-        w.index(revision, state="error", **extras)
+
+        namespace_suffix = ""
+        if analysis_mode == AnalysisMode.BuildTest:
+            namespace_suffix = "build-test"
+
+        w.index(revision, namespace_suffix=namespace_suffix, state="error", **extras)
 
         # Update Phabricator
         failure = UnitResult(
