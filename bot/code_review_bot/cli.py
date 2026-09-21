@@ -196,6 +196,8 @@ def main():
             )
             w.ingest_revision(revision, settings.generic_group_id)
         elif settings.phabricator_build_target:
+            analysis_mode = settings.analysis_mode
+
             # Only Phabricator revisions is supported from build target
             revision = PhabricatorRevision.from_phabricator_trigger(
                 settings.phabricator_build_target,
@@ -203,6 +205,14 @@ def main():
             )
             if revision is None:
                 return 0
+
+            if settings.analysis_mode == AnalysisMode.BuildTest:
+                # Allow for this feature to be turned on gradually
+                if not revision.build_test_feature:
+                    # Make sure we don't leave a hanging Build on phabricator!
+                    w.update_status(revision, state=BuildState.Pass)
+                    return 0
+
             w.start_analysis(revision, settings.analysis_mode)
         else:
             decision_task = queue_service.task(settings.try_group_id)
