@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from code_review_bot.analysis import AnalysisMode
 from code_review_bot.testing_policy import (
     TESTING_APPROVED_PHID,
     TESTING_EXCEPTION_UI_PHID,
@@ -388,7 +389,7 @@ def test_phabricator_reporter_sets_tag(
         revision.id = 52
         reporter = PhabricatorReporter({}, api=api)
 
-    reporter.publish([], revision, [], [], [])
+    reporter.publish([], revision, [], [], [], AnalysisMode.Lint)
 
     # A single transaction adding the tag has been sent
     assert phab.transactions == {
@@ -412,6 +413,6 @@ def test_phabricator_reporter_skips_code_changes(
         revision.id = 52
         reporter = PhabricatorReporter({}, api=api)
 
-    reporter.publish([], revision, [], [], [])
+    reporter.publish([], revision, [], [], [], AnalysisMode.Lint)
 
     assert phab.transactions == {}
