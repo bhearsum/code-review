@@ -11,6 +11,7 @@ import responses
 from conftest import FIXTURES_DIR
 
 from code_review_bot import Level
+from code_review_bot.analysis import AnalysisMode
 from code_review_bot.report.github import GithubReporter
 from code_review_bot.revisions import GithubRevision, Revision
 from code_review_bot.tasks.clang_tidy import ClangTidyIssue, ClangTidyTask
@@ -22,7 +23,6 @@ def test_github_review(
     mock_github,
     mock_config,
     phab,
-    mock_try_task,
     mock_github_decision_task,
     mock_task,
     mock_backend_secret,
@@ -30,7 +30,7 @@ def test_github_review(
     """
     Report 2 clang tidy issues by pushing a review to a Github pull request
     """
-    revision = Revision.from_try_task(mock_try_task, mock_github_decision_task, None)
+    revision = Revision.from_try_task(mock_github_decision_task, "PHID-HMBT-test", None)
     assert isinstance(revision, GithubRevision)
     revision.lines = {
         # Add dummy lines diff
@@ -109,7 +109,12 @@ def test_github_review(
     )
 
     reporter.publish(
-        [issue_clang_tidy, issue_on_touched_file, issue_coverage], revision, [], [], []
+        [issue_clang_tidy, issue_on_touched_file, issue_coverage],
+        revision,
+        [],
+        [],
+        [],
+        AnalysisMode.Lint,
     )
     assert [(call.request.method, call.request.url) for call in responses.calls] == [
         ("GET", "https://github.com/owner/repo-name/pull/1.diff"),
@@ -169,13 +174,12 @@ def test_github_review_cleanup(
     mock_github,
     mock_config,
     phab,
-    mock_try_task,
     mock_github_decision_task,
     mock_task,
     mock_backend_secret,
 ):
     """In case no issue is found, previous reviews are dismissed"""
-    revision = Revision.from_try_task(mock_try_task, mock_github_decision_task, None)
+    revision = Revision.from_try_task(mock_github_decision_task, "PHID-HMBT-test", None)
     revision.lines = {}
     revision.files = ["test.txt", "test.cpp", "another_test.cpp"]
     revision.id = 52
@@ -212,7 +216,7 @@ def test_github_review_cleanup(
         json={},
     )
 
-    reporter.publish([], revision, [], [], [])
+    reporter.publish([], revision, [], [], [], AnalysisMode.Lint)
     assert [(call.request.method, call.request.url) for call in responses.calls] == [
         ("GET", "https://github.com/owner/repo-name/pull/1.diff"),
         ("GET", "https://api.github.com:443/app/installations"),

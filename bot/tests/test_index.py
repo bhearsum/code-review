@@ -26,7 +26,7 @@ class MockPhabricatorRevision(PhabricatorRevision):
         return self._details
 
 
-def test_taskcluster_index(mock_config, mock_workflow, mock_try_task):
+def test_taskcluster_index(mock_config, mock_workflow):
     """
     Test the Taskcluster indexing API
     by mocking an online taskcluster state
@@ -60,6 +60,54 @@ def test_taskcluster_index(mock_config, mock_workflow, mock_try_task):
     # Second call with sub namespace
     namespace, args = calls[1][0]
     assert namespace == "project.relman.test.code-review.mock.1234.12345deadbeef"
+    assert args["taskId"] == "12345deadbeef"
+    assert args["data"]["test"] == "dummy"
+    assert args["data"]["id"] == "1234"
+    assert args["data"]["source"] == "try"
+    assert args["data"]["try_task_id"] == "remoteTryTask"
+    assert args["data"]["try_group_id"] == "remoteTryGroup"
+    assert args["data"]["repository"] == "test-repo"
+    assert args["data"]["someData"] == "mock"
+    assert "indexed" in args["data"]
+
+
+def test_taskcluster_index_with_suffix(mock_config, mock_workflow):
+    """
+    Test the Taskcluster indexing API
+    by mocking an online taskcluster state
+    """
+
+    mock_config.taskcluster = TaskCluster("/tmp/dummy", "12345deadbeef", 0, False)
+    mock_workflow.index_service = mock.Mock()
+    rev = MockPhabricatorRevision(
+        namespaces=["mock.1234"],
+        details={"id": "1234", "someData": "mock", "state": "done"},
+        repository="test-repo",
+    )
+    mock_workflow.index(rev, namespace_suffix="suffixtest", test="dummy")
+
+    assert mock_workflow.index_service.insertTask.call_count == 2
+    calls = mock_workflow.index_service.insertTask.call_args_list
+
+    # First call with namespace
+    namespace, args = calls[0][0]
+    assert namespace == "project.relman.test.code-review.mock.1234.suffixtest"
+    assert args["taskId"] == "12345deadbeef"
+    assert args["data"]["test"] == "dummy"
+    assert args["data"]["id"] == "1234"
+    assert args["data"]["source"] == "try"
+    assert args["data"]["try_task_id"] == "remoteTryTask"
+    assert args["data"]["try_group_id"] == "remoteTryGroup"
+    assert args["data"]["repository"] == "test-repo"
+    assert args["data"]["someData"] == "mock"
+    assert "indexed" in args["data"]
+
+    # Second call with sub namespace
+    namespace, args = calls[1][0]
+    assert (
+        namespace
+        == "project.relman.test.code-review.mock.1234.suffixtest.12345deadbeef"
+    )
     assert args["taskId"] == "12345deadbeef"
     assert args["data"]["test"] == "dummy"
     assert args["data"]["id"] == "1234"
@@ -188,7 +236,6 @@ def test_index_phabricator(
 def test_index_from_try(
     mock_phabricator,
     phab,
-    mock_try_task,
     mock_decision_task,
     mock_workflow,
     mock_config,
@@ -199,7 +246,7 @@ def test_index_from_try(
     """
 
     with mock_phabricator as api:
-        revision = Revision.from_try_task(mock_try_task, mock_decision_task, api)
+        revision = Revision.from_try_task(mock_decision_task, "PHID-HMBT-test", api)
         assert isinstance(revision, PhabricatorRevision)
 
     mock_workflow.index_service = mock.Mock()

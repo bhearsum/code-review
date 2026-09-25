@@ -16,6 +16,7 @@ from taskcluster.utils import stringDate
 
 from code_review_bot import Level, stats
 from code_review_bot.analysis import (
+    AnalysisMode,
     PhabricatorRevisionBuild,
     publish_analysis_lando,
     publish_analysis_phabricator,
@@ -104,10 +105,14 @@ class Workflow:
         # Is local clone already setup ?
         self.clone_available = False
 
-    def run(self, revision):
+    def run(self, revision, analysis_mode: AnalysisMode):
         """
         Find all issues on remote tasks and publish them
         """
+        if analysis_mode == AnalysisMode.Lint:
+            return self._run_lint(revision)
+
+    def _run_lint(self, revision):
         # Index ASAP Taskcluster task for this revision
         self.index(revision, state="started")
 
@@ -168,7 +173,9 @@ class Workflow:
             logger.info("No issues nor notices, stopping there.")
 
         # Publish all issues
-        self.publish(revision, issues, task_failures, notices, reviewers)
+        self.publish(
+            revision, issues, task_failures, notices, reviewers, AnalysisMode.Lint
+        )
 
         return issues
 
@@ -273,7 +280,9 @@ class Workflow:
         # Publish issues in the backend
         self.backend_api.publish_issues(issues, revision)
 
-    def start_analysis(self, revision: PhabricatorRevision) -> None:
+    def start_analysis(
+        self, revision: PhabricatorRevision, analysis_mode: AnalysisMode
+    ):
         """
         Apply a patch on a local clone and push to try to trigger a new Code review analysis
         """
@@ -365,9 +374,18 @@ class Workflow:
         # We'll clone the required repository
         repository.clone()
 
+        parameters = {}
+        if analysis_mode == AnalysisMode.Lint:
+            parameters.update(
+                {
+                    "target_tasks_method": "codereview",
+                    "optimize_target_tasks": True,
+                }
+            )
+
         # Apply the stack of patches and push to try
         worker = MercurialWorker()
-        output = worker.run(repository, build)
+        output = worker.run(repository, build, parameters)
 
         # Cancel any in-progress tasks from an earlier update
         # This is done after pushing to try to avoid delaying runs of the
@@ -386,7 +404,7 @@ class Workflow:
         # Send Build in progress or errors to Lando
         lando_reporter = self.reporters.get("lando")
         if lando_reporter is not None:
-            publish_analysis_lando(output, lando_reporter.lando_api)
+            publish_analysis_lando(output, lando_reporter.lando_api, analysis_mode)
         else:
             logger.info("Skipping Lando publication")
 
@@ -443,7 +461,16 @@ class Workflow:
 
         self.clone_available = True
 
-    def publish(self, revision, issues, task_failures, notices, reviewers):
+    def publish(
+        self,
+        revision,
+        issues,
+        task_failures,
+        notices,
+        reviewers,
+        analysis_mode: AnalysisMode,
+        index_prefix="",
+    ):
         """
         Publish issues on selected reporters
         """
@@ -478,7 +505,9 @@ class Workflow:
         # Publish reports about these issues
         with stats.timer("runtime.reports"):
             for reporter in self.reporters.values():
-                reporter.publish(issues, revision, task_failures, notices, reviewers)
+                reporter.publish(
+                    issues, revision, task_failures, notices, reviewers, analysis_mode
+                )
 
         self.index(
             revision, state="done", issues=nb_issues, issues_publishable=nb_publishable
@@ -730,7 +759,7 @@ class Workflow:
         except Exception as e:
             logger.warn("Failed to find a decision task", route=route, error=str(e))
 
-    def index(self, revision, **kwargs):
+    def index(self, revision, namespace_suffix="", **kwargs):
         """
         Index current task on Taskcluster index
         """
@@ -763,11 +792,18 @@ class Workflow:
             "error_code"
         ) in ("watchdog", "mercurial")
 
+        # Apply a namespace suffix if supplied
+        if namespace_suffix:
+            namespaces = [
+                f"{namespace}.{namespace_suffix}" for namespace in revision.namespaces
+            ]
+        else:
+            namespaces = revision.namespaces
+
         # Add a sub namespace with the task id to be able to list
         # tasks from the parent namespace
-        namespaces = revision.namespaces + [
-            f"{namespace}.{settings.taskcluster.task_id}"
-            for namespace in revision.namespaces
+        namespaces = namespaces + [
+            f"{namespace}.{settings.taskcluster.task_id}" for namespace in namespaces
         ]
 
         # Build complete namespaces list, with monitoring update

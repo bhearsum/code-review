@@ -12,6 +12,7 @@ from requests.exceptions import HTTPError
 from structlog.testing import capture_logs
 
 from code_review_bot import Level
+from code_review_bot.analysis import AnalysisMode
 from code_review_bot.report.phabricator import PhabricatorReporter
 from code_review_bot.revisions import ImprovementPatch, PhabricatorRevision, Revision
 from code_review_bot.tasks.clang_format import ClangFormatIssue, ClangFormatTask
@@ -262,15 +263,13 @@ You can view these defects in the Diff Detail section of [Phabricator diff 42](h
 """
 
 
-def test_phabricator_clang_tidy(
-    mock_phabricator, phab, mock_try_task, mock_decision_task, mock_task
-):
+def test_phabricator_clang_tidy(mock_phabricator, phab, mock_decision_task, mock_task):
     """
     Test Phabricator reporter publication on a mock clang-tidy issue
     """
 
     with mock_phabricator as api:
-        revision = Revision.from_try_task(mock_try_task, mock_decision_task, api)
+        revision = Revision.from_try_task(mock_decision_task, "PHID-HMBT-test", api)
         assert isinstance(revision, PhabricatorRevision)
         revision.lines = {
             # Add dummy lines diff
@@ -291,7 +290,7 @@ def test_phabricator_clang_tidy(
     )
     assert issue.is_publishable()
 
-    issues, patches = reporter.publish([issue], revision, [], [], [])
+    issues, patches = reporter.publish([issue], revision, [], [], [], AnalysisMode.Lint)
     assert len(issues) == 1
     assert len(patches) == 0
 
@@ -300,14 +299,14 @@ def test_phabricator_clang_tidy(
 
 
 def test_phabricator_clang_format(
-    mock_config, mock_phabricator, phab, mock_try_task, mock_decision_task, mock_task
+    mock_config, mock_phabricator, phab, mock_decision_task, mock_task
 ):
     """
     Test Phabricator reporter publication on a mock clang-format issue
     """
 
     with mock_phabricator as api:
-        revision = Revision.from_try_task(mock_try_task, mock_decision_task, api)
+        revision = Revision.from_try_task(mock_decision_task, "PHID-HMBT-test", api)
         assert isinstance(revision, PhabricatorRevision)
         revision.lines = {
             # Add dummy lines diff
@@ -331,7 +330,7 @@ def test_phabricator_clang_format(
     ]
     list(map(lambda p: p.write(), revision.improvement_patches))  # trigger local write
 
-    issues, patches = reporter.publish([issue], revision, [], [], [])
+    issues, patches = reporter.publish([issue], revision, [], [], [], AnalysisMode.Lint)
     assert len(issues) == 1
     assert len(patches) == 1
 
@@ -342,7 +341,7 @@ def test_phabricator_clang_format(
 
 
 def test_phabricator_mozlint(
-    mock_config, mock_phabricator, phab, mock_try_task, mock_decision_task, mock_task
+    mock_config, mock_phabricator, phab, mock_decision_task, mock_task
 ):
     """
     Test Phabricator reporter publication on two mock mozlint issues
@@ -350,7 +349,7 @@ def test_phabricator_mozlint(
     """
 
     with mock_phabricator as api:
-        revision = Revision.from_try_task(mock_try_task, mock_decision_task, api)
+        revision = Revision.from_try_task(mock_decision_task, "PHID-HMBT-test", api)
         assert isinstance(revision, PhabricatorRevision)
         revision.lines = {
             # Add dummy lines diff
@@ -389,7 +388,7 @@ def test_phabricator_mozlint(
     assert issue_eslint.is_publishable()
 
     issues, patches = reporter.publish(
-        [issue_flake, issue_eslint], revision, [], [], []
+        [issue_flake, issue_eslint], revision, [], [], [], AnalysisMode.Lint
     )
     assert len(issues) == 2
     assert len(patches) == 0
@@ -432,7 +431,6 @@ def test_phabricator_coverage(
     mock_config,
     mock_phabricator,
     phab,
-    mock_try_task,
     mock_decision_task,
     mock_task,
 ):
@@ -440,7 +438,7 @@ def test_phabricator_coverage(
     Test Phabricator reporter publication on a mock coverage issue
     """
     with mock_phabricator as api:
-        revision = Revision.from_try_task(mock_try_task, mock_decision_task, api)
+        revision = Revision.from_try_task(mock_decision_task, "PHID-HMBT-test", api)
         assert isinstance(revision, PhabricatorRevision)
         revision.lines = {
             # Add dummy lines diff
@@ -461,7 +459,7 @@ def test_phabricator_coverage(
     )
     assert issue.is_publishable()
 
-    issues, patches = reporter.publish([issue], revision, [], [], [])
+    issues, patches = reporter.publish([issue], revision, [], [], [], AnalysisMode.Lint)
     assert len(issues) == 1
     assert len(patches) == 0
 
@@ -493,7 +491,6 @@ def test_phabricator_no_coverage_on_deleted_file(
     mock_config,
     mock_phabricator,
     phab,
-    mock_try_task,
     mock_decision_task,
     mock_task,
 ):
@@ -507,7 +504,7 @@ def test_phabricator_no_coverage_on_deleted_file(
         raise HTTPError(response=resp_mock)
 
     with mock_phabricator as api:
-        revision = Revision.from_try_task(mock_try_task, mock_decision_task, api)
+        revision = Revision.from_try_task(mock_decision_task, "PHID-HMBT-test", api)
         assert isinstance(revision, PhabricatorRevision)
         revision.lines = {
             # Add dummy lines diff
@@ -533,7 +530,6 @@ def test_phabricator_clang_tidy_and_coverage(
     mock_config,
     mock_phabricator,
     phab,
-    mock_try_task,
     mock_decision_task,
     mock_task,
 ):
@@ -542,7 +538,7 @@ def test_phabricator_clang_tidy_and_coverage(
     """
 
     with mock_phabricator as api:
-        revision = Revision.from_try_task(mock_try_task, mock_decision_task, api)
+        revision = Revision.from_try_task(mock_decision_task, "PHID-HMBT-test", api)
         assert isinstance(revision, PhabricatorRevision)
         revision.lines = {
             # Add dummy lines diff
@@ -578,7 +574,7 @@ def test_phabricator_clang_tidy_and_coverage(
     assert issue_coverage.is_publishable()
 
     issues, patches = reporter.publish(
-        [issue_clang_tidy, issue_coverage], revision, [], [], []
+        [issue_clang_tidy, issue_coverage], revision, [], [], [], AnalysisMode.Lint
     )
     assert len(issues) == 2
     assert len(patches) == 0
@@ -654,7 +650,6 @@ def test_phabricator_analyzers(
     valid_patches,
     mock_config,
     mock_phabricator,
-    mock_try_task,
     mock_decision_task,
     mock_task,
 ):
@@ -667,7 +662,7 @@ def test_phabricator_analyzers(
         api.comment = unittest.mock.Mock(return_value=True)
 
         # Always use the same setup, only varies the analyzers
-        revision = Revision.from_try_task(mock_try_task, mock_decision_task, api)
+        revision = Revision.from_try_task(mock_decision_task, "PHID-HMBT-test", api)
         assert isinstance(revision, PhabricatorRevision)
         revision.lines = {"test.cpp": [0, 41, 42, 43], "dom/test.cpp": [42]}
         revision.id = 52
@@ -733,7 +728,7 @@ def test_phabricator_analyzers(
     ]
     list(map(lambda p: p.write(), revision.improvement_patches))  # trigger local write
 
-    issues, patches = reporter.publish(issues, revision, [], [], [])
+    issues, patches = reporter.publish(issues, revision, [], [], [], AnalysisMode.Lint)
 
     # Check issues & patches analyzers
     assert len(issues) == len(valid_issues)
@@ -743,7 +738,7 @@ def test_phabricator_analyzers(
 
 
 def test_phabricator_clang_tidy_build_error(
-    mock_phabricator, phab, mock_try_task, mock_decision_task, mock_task
+    mock_phabricator, phab, mock_decision_task, mock_task
 ):
     """
     Test Phabricator Lint for a ClangTidyIssue with build error
@@ -752,7 +747,7 @@ def test_phabricator_clang_tidy_build_error(
     from code_review_bot import Level
 
     with mock_phabricator as api:
-        revision = Revision.from_try_task(mock_try_task, mock_decision_task, api)
+        revision = Revision.from_try_task(mock_decision_task, "PHID-HMBT-test", api)
         assert isinstance(revision, PhabricatorRevision)
         revision.lines = {
             # Add dummy lines diff
@@ -777,7 +772,9 @@ def test_phabricator_clang_tidy_build_error(
 
         assert issue.is_publishable()
 
-        issues, patches = reporter.publish([issue], revision, [], [], [])
+        issues, patches = reporter.publish(
+            [issue], revision, [], [], [], AnalysisMode.Lint
+        )
         assert len(issues) == 1
         assert len(patches) == 0
 
@@ -803,15 +800,13 @@ def test_phabricator_clang_tidy_build_error(
         assert phab.comments[51] == [VALID_BUILD_ERROR_MESSAGE]
 
 
-def test_full_file(
-    mock_config, mock_phabricator, phab, mock_try_task, mock_decision_task, mock_task
-):
+def test_full_file(mock_config, mock_phabricator, phab, mock_decision_task, mock_task):
     """
     Test Phabricator reporter supports an issue on a full file
     """
 
     with mock_phabricator as api:
-        revision = Revision.from_try_task(mock_try_task, mock_decision_task, api)
+        revision = Revision.from_try_task(mock_decision_task, "PHID-HMBT-test", api)
         assert isinstance(revision, PhabricatorRevision)
         revision.lines = {
             # Add dummy lines diff
@@ -838,7 +833,7 @@ def test_full_file(
     assert revision.has_file(issue.path)
     assert revision.contains(issue)
 
-    issues, patches = reporter.publish([issue], revision, [], [], [])
+    issues, patches = reporter.publish([issue], revision, [], [], [], AnalysisMode.Lint)
     assert len(issues) == 1
     assert len(patches) == 0
 
@@ -868,13 +863,13 @@ def test_full_file(
     ]
 
 
-def test_task_failures(mock_phabricator, phab, mock_try_task, mock_decision_task):
+def test_task_failures(mock_phabricator, phab, mock_decision_task):
     """
     Test Phabricator reporter publication with some task failures
     """
 
     with mock_phabricator as api:
-        revision = Revision.from_try_task(mock_try_task, mock_decision_task, api)
+        revision = Revision.from_try_task(mock_decision_task, "PHID-HMBT-test", api)
         assert isinstance(revision, PhabricatorRevision)
         revision.id = 52
         reporter = PhabricatorReporter({"analyzers": ["clang-tidy"]}, api=api)
@@ -884,7 +879,7 @@ def test_task_failures(mock_phabricator, phab, mock_try_task, mock_decision_task
         "status": {"runs": [{"runId": 0}]},
     }
     task = ClangTidyTask("ab3NrysvSZyEwsOHL2MZfw", status)
-    issues, patches = reporter.publish([], revision, [task], [], [])
+    issues, patches = reporter.publish([], revision, [task], [], [], AnalysisMode.Lint)
     assert len(issues) == 0
     assert len(patches) == 0
 
@@ -892,15 +887,13 @@ def test_task_failures(mock_phabricator, phab, mock_try_task, mock_decision_task
     assert phab.comments[51] == [VALID_TASK_FAILURES_MESSAGE]
 
 
-def test_extra_errors(
-    mock_phabricator, mock_try_task, mock_decision_task, phab, mock_task
-):
+def test_extra_errors(mock_phabricator, mock_decision_task, phab, mock_task):
     """
     Test Phabricator reporter publication with some errors outside of patch
     """
 
     with mock_phabricator as api:
-        revision = Revision.from_try_task(mock_try_task, mock_decision_task, api)
+        revision = Revision.from_try_task(mock_decision_task, "PHID-HMBT-test", api)
         assert isinstance(revision, PhabricatorRevision)
         revision.lines = {"path/to/file.py": [1, 2, 3]}
         revision.files = ["path/to/file.py"]
@@ -947,7 +940,9 @@ def test_extra_errors(
         ),
     ]
 
-    published_issues, patches = reporter.publish(all_issues, revision, [], [], [])
+    published_issues, patches = reporter.publish(
+        all_issues, revision, [], [], [], AnalysisMode.Lint
+    )
     assert len(published_issues) == 2
     assert len(patches) == 0
 
@@ -986,13 +981,13 @@ def test_extra_errors(
     assert phab.comments[51] == [VALID_MOZLINT_MESSAGE]
 
 
-def test_phabricator_notices(mock_phabricator, phab, mock_try_task, mock_decision_task):
+def test_phabricator_notices(mock_phabricator, phab, mock_decision_task):
     """
     Test Phabricator reporter publication on a mock clang-format issue
     """
 
     with mock_phabricator as api:
-        revision = Revision.from_try_task(mock_try_task, mock_decision_task, api)
+        revision = Revision.from_try_task(mock_decision_task, "PHID-HMBT-test", api)
         assert isinstance(revision, PhabricatorRevision)
         revision.lines = {
             # Add dummy lines diff
@@ -1009,6 +1004,7 @@ def test_phabricator_notices(mock_phabricator, phab, mock_try_task, mock_decisio
         [],
         notices,
         [],
+        AnalysisMode.Lint,
     )
 
     # Check the comment has been posted
@@ -1027,6 +1023,7 @@ def test_phabricator_notices(mock_phabricator, phab, mock_try_task, mock_decisio
         [],
         notices,
         [],
+        AnalysisMode.Lint,
     )
 
     # Check the comment has been posted
@@ -1035,13 +1032,13 @@ def test_phabricator_notices(mock_phabricator, phab, mock_try_task, mock_decisio
     ]
 
 
-def test_phabricator_tgdiff(mock_phabricator, phab, mock_try_task, mock_decision_task):
+def test_phabricator_tgdiff(mock_phabricator, phab, mock_decision_task):
     """
     Test Phabricator reporter publication on a mock clang-format issue
     """
 
     with mock_phabricator as api:
-        revision = Revision.from_try_task(mock_try_task, mock_decision_task, api)
+        revision = Revision.from_try_task(mock_decision_task, "PHID-HMBT-test", api)
         assert isinstance(revision, PhabricatorRevision)
         revision.lines = {
             # Add dummy lines diff
@@ -1059,6 +1056,7 @@ def test_phabricator_tgdiff(mock_phabricator, phab, mock_try_task, mock_decision
         [],
         [doc_notice],
         [],
+        AnalysisMode.Lint,
     )
 
     # Check the comment has been posted
@@ -1066,14 +1064,14 @@ def test_phabricator_tgdiff(mock_phabricator, phab, mock_try_task, mock_decision
 
 
 def test_phabricator_external_tidy(
-    mock_phabricator, phab, mock_try_task, mock_decision_task, mock_task
+    mock_phabricator, phab, mock_decision_task, mock_task
 ):
     """
     Test Phabricator reporter publication on a mock external-tidy issue
     """
 
     with mock_phabricator as api:
-        revision = Revision.from_try_task(mock_try_task, mock_decision_task, api)
+        revision = Revision.from_try_task(mock_decision_task, "PHID-HMBT-test", api)
         assert isinstance(revision, PhabricatorRevision)
         revision.lines = {
             # Add dummy lines diff
@@ -1108,7 +1106,12 @@ def test_phabricator_external_tidy(
     assert not issue_clang_diagnostic.is_publishable()
 
     issues, patches = reporter.publish(
-        [issue_civet_warning, issue_clang_diagnostic], revision, [], [], []
+        [issue_civet_warning, issue_clang_diagnostic],
+        revision,
+        [],
+        [],
+        [],
+        AnalysisMode.Lint,
     )
     assert len(issues) == 1
     assert len(patches) == 0
@@ -1118,14 +1121,14 @@ def test_phabricator_external_tidy(
 
 
 def test_phabricator_newer_diff(
-    monkeypatch, mock_phabricator, phab, mock_try_task, mock_decision_task, mock_task
+    monkeypatch, mock_phabricator, phab, mock_decision_task, mock_task
 ):
     """
     Test Phabricator reporter publication won't be called when a newer diff exists for the patch
     """
 
     with mock_phabricator as api:
-        revision = Revision.from_try_task(mock_try_task, mock_decision_task, api)
+        revision = Revision.from_try_task(mock_decision_task, "PHID-HMBT-test", api)
         assert isinstance(revision, PhabricatorRevision)
         revision.lines = {
             # Add dummy lines diff
@@ -1148,7 +1151,9 @@ def test_phabricator_newer_diff(
     with capture_logs() as cap_logs:
         os.environ["SPECIAL_NAME"] = "PHID-DREV-zzzzz-updated"
 
-        issues, patches = reporter.publish([issue], revision, [], [], [])
+        issues, patches = reporter.publish(
+            [issue], revision, [], [], [], AnalysisMode.Lint
+        )
 
         assert cap_logs == [
             # Log from PhabricatorReporter.publish_harbormaster(), it was still called
@@ -1194,7 +1199,7 @@ def test_phabricator_newer_diff(
 
 
 def test_phabricator_former_diff_comparison(
-    monkeypatch, mock_phabricator, phab, mock_try_task, mock_decision_task, mock_task
+    monkeypatch, mock_phabricator, phab, mock_decision_task, mock_task
 ):
     """
     Test Phabricator reporter publication shows the number of unresolved
@@ -1204,7 +1209,7 @@ def test_phabricator_former_diff_comparison(
     """
 
     with mock_phabricator as api:
-        revision = Revision.from_try_task(mock_try_task, mock_decision_task, api)
+        revision = Revision.from_try_task(mock_decision_task, "PHID-HMBT-test", api)
         assert isinstance(revision, PhabricatorRevision)
         revision.lines = {
             # Add dummy lines diff
@@ -1280,7 +1285,9 @@ def test_phabricator_former_diff_comparison(
     os.environ["SPECIAL_NAME"] = "PHID-DREV-zzzzz-updated"
 
     with capture_logs() as cap_logs:
-        issues, patches = reporter.publish(issues, revision, [], [], [])
+        issues, patches = reporter.publish(
+            issues, revision, [], [], [], AnalysisMode.Lint
+        )
 
     assert cap_logs == [
         # Log from PhabricatorReporter.publish_harbormaster(), it was still called
@@ -1338,7 +1345,6 @@ def test_phabricator_before_after_comment(
     monkeypatch,
     mock_phabricator,
     phab,
-    mock_try_task,
     mock_decision_task,
     mock_task,
     mock_taskcluster_config,
@@ -1353,7 +1359,7 @@ def test_phabricator_before_after_comment(
     mock_taskcluster_config.secrets = {"BEFORE_AFTER_RATIO": 1}
 
     with mock_phabricator as api:
-        revision = Revision.from_try_task(mock_try_task, mock_decision_task, api)
+        revision = Revision.from_try_task(mock_decision_task, "PHID-HMBT-test", api)
         assert isinstance(revision, PhabricatorRevision)
         revision.lines = {
             # Add dummy lines diff
@@ -1393,7 +1399,7 @@ def test_phabricator_before_after_comment(
 
     with capture_logs() as cap_logs:
         issues, patches = reporter.publish(
-            [cov_issue, clang_issue], revision, [], [], []
+            [cov_issue, clang_issue], revision, [], [], [], AnalysisMode.Lint
         )
 
     assert cap_logs == [

@@ -22,7 +22,7 @@ import pytest
 import responses
 from libmozdata.phabricator import PhabricatorAPI
 
-from code_review_bot import Level, stats
+from code_review_bot import IssueType, Level, stats
 from code_review_bot.backend import BackendAPI
 from code_review_bot.config import GetAppUserAgent, settings
 from code_review_bot.mercurial import MercurialRepository
@@ -94,6 +94,8 @@ def mock_issues(mock_task):
     task = mock_task(DefaultTask, "mock-analyzer")
 
     class MockIssue:
+        type_ = IssueType.Lint
+
         def __init__(self, nb):
             self.nb = nb
             self.path = "/path/to/file"
@@ -382,14 +384,6 @@ def mock_github(mock_config):
 
 
 @pytest.fixture
-def mock_try_task():
-    """
-    Mock a remote Try task definition
-    """
-    return {"extra": {"code-review": {"phabricator-diff": "PHID-HMBT-test"}}}
-
-
-@pytest.fixture
 def mock_github_decision_task():
     """
     Mock a decision task definition from a github revision
@@ -446,14 +440,14 @@ def mock_autoland_task():
 
 
 @pytest.fixture
-def mock_revision(mock_phabricator, mock_try_task, mock_decision_task, mock_config):
+def mock_revision(mock_phabricator, mock_decision_task, mock_config):
     """
     Mock a mercurial revision
     """
     from code_review_bot.revisions import PhabricatorRevision, Revision
 
     with mock_phabricator as api:
-        revision = Revision.from_try_task(mock_try_task, mock_decision_task, api)
+        revision = Revision.from_try_task(mock_decision_task, "PHID-HMBT-test", api)
         assert isinstance(revision, PhabricatorRevision)
         return revision
 
@@ -470,15 +464,13 @@ def mock_revision_autoland(mock_phabricator, mock_autoland_task):
 
 
 @pytest.fixture
-def mock_github_revision(
-    mock_github, mock_try_task, mock_github_decision_task, mock_config
-):
+def mock_github_revision(mock_github, mock_github_decision_task, mock_config):
     """
     Mock a github revision
     """
     from code_review_bot.revisions import GithubRevision, Revision
 
-    revision = Revision.from_try_task(mock_try_task, mock_github_decision_task, None)
+    revision = Revision.from_try_task(mock_github_decision_task, "PHID-HMBT-test", None)
     assert isinstance(revision, GithubRevision)
     return revision
 
