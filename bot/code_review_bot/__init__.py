@@ -136,16 +136,23 @@ class BaseIssue(abc.ABC):
         """
         raise NotImplementedError
 
+    def needs_file_content(self):
+        return False
+
+    def can_build_hash(self):
+        return True
+
     def as_dict(self):
         """
         Build the serializable dict representation of the issue
         Used by debugging tools
         """
         issue_hash = None
-        try:
-            issue_hash = self.hash
-        except Exception as e:
-            logger.warn("Failed to build issue hash", error=str(e), issue=str(self))
+        if self.can_build_hash():
+            try:
+                issue_hash = self.hash
+            except Exception as e:
+                logger.warn("Failed to build issue hash", error=str(e), issue=str(self))
 
         return {
             "analyzer": self.analyzer.name,
@@ -273,6 +280,14 @@ class Issue(BaseIssue):
 
         # Fallback to in_patch detection
         return self.in_patch
+
+    def needs_file_content(self):
+        return self.is_publishable()
+
+    def can_build_hash(self):
+        return "hash" in self.__dict__ or not (
+            settings.mercurial_cache or settings.git_cache
+        )
 
     @cached_property
     def hash(self):
